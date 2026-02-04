@@ -3,29 +3,38 @@ import httpx
 from fastapi import FastAPI,Request,Response
 import uvicorn
 from urllib.parse import urlparse
+from redis import asyncio as redis
 
 app = FastAPI()
 ORIGIN_URL = ""
+r =redis.from_url("redis://localhost",decode_responses=False)
+
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy_logic(request: Request, path: str):
+
     target_url = f"{ORIGIN_URL.rstrip('/')}/{path.lstrip('/')}"
-
-
-    domain = urlparse(ORIGIN_URL).netloc
-
-
-    headers = {
-        "Host": domain,
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "*/*"
-    }
-
-    print(f"\nDebug: Path {path} -> Target {target_url}")
-    print(f"Debug: Setting Host to {domain}")
-
+    cache_key = target_url
 
     try:
+        cached_data = await  r.get(cache_key)
+        if cached_data:
+            print(f"Debug: Cache hit")
+            return Response(
+                content=cached_data,
+                status_code=200,
+                headers = {"x-cache": "Hit","content-type": "application/json"})
+
+        print(f"Debug: Cache miss")
+
+        domain = urlparse(ORIGIN_URL).netloc
+
+        headers = {
+            "Host": domain,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "*/*"
+        }
+
         async with httpx.AsyncClient(follow_redirects=True) as client:
             response = await client.request(
                 method=request.method,
@@ -35,7 +44,8 @@ async def proxy_logic(request: Request, path: str):
                 timeout=15.0
             )
 
-        print(f"Origin Status: {response.status_code}")
+        if response.status_code == 200:
+             await  r.set(cache_key, response.content, ex=600)
 
         return Response(
             content=response.content,

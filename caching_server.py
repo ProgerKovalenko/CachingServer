@@ -64,14 +64,24 @@ def main():
     global ORIGIN_URL
     parser = argparse.ArgumentParser(description='Caching Proxy Server')
     parser.add_argument("--port", type=int, default=3000, help = "Local port for start server")
-    parser.add_argument("--origin", type=str, required= True, help = "URL server, that we proxy")
+    parser.add_argument("--origin", type=str, help = "URL server, that we proxy")
     parser.add_argument("--clear-cache", action='store_true', help = "Clear cache")
     args = parser.parse_args()
 
+    if args.clear_cache:
+        import redis as sync_redis
+        try:
+            client = sync_redis.Redis(host="localhost", port=6379)
+            client.flushdb()
+            print("Success:Cache has been cleared")
+        except Exception as e:
+            print(f"Error during clear cache: {e}")
+        return
+
+    if not args.origin:
+        print("Error: --origin is required")
 
     ORIGIN_URL = args.origin.strip("/")
-
-
     print(f"Starting proxy on port {args.port}, origin: {ORIGIN_URL}")
     uvicorn.run(app, host= "127.0.0.1", port=args.port)
 
